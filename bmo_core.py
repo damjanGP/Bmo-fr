@@ -27,7 +27,8 @@ import logging
 sys.path.insert(0, r"C:\Users\damja\AppData\Roaming\Python\Python310\site-packages")
 
 # ── LOGGING ────────────────────────────────────────────────────────────────
-LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bmo_core.log")
+LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "bmo_core.log")
+os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -68,11 +69,12 @@ CORS(app)
 PORT         = 6000
 OLLAMA_MODEL = "llama3"
 
-SCRIPT_DIR   = os.path.dirname(os.path.abspath(__file__))
-RVC_MODEL    = os.path.join(SCRIPT_DIR, "BMO_500e_7000s.pth")
-RVC_INDEX    = os.path.join(SCRIPT_DIR, "BMO.index")
-SOUNDS_BASE  = os.path.join(SCRIPT_DIR, "sounds")
-SHUTDOWN_DIR = os.path.join(SOUNDS_BASE, "shutdown")
+SCRIPT_DIR        = os.path.dirname(os.path.abspath(__file__))
+RVC_MODEL         = os.path.join(SCRIPT_DIR, "models",  "BMO_500e_7000s.pth")
+RVC_INDEX         = os.path.join(SCRIPT_DIR, "models",  "BMO.index")
+SOUNDS_BASE       = os.path.join(SCRIPT_DIR, "assets",  "sounds")
+SHUTDOWN_DIR      = os.path.join(SOUNDS_BASE, "shutdown")
+CONVERSATIONS_PATH = os.path.join(SCRIPT_DIR, "data",   "conversations.json")
 
 SPOTIFY_CLIENT_ID     = "365b371ad2c7483ea7dda2029869c3a3"
 SPOTIFY_CLIENT_SECRET = "2c6b2968fbb9425792b99355b03b65ac"
@@ -82,6 +84,7 @@ SPOTIFY_CACHE_PATH    = os.path.join(SCRIPT_DIR, ".spotify_cache")
 SPOTIFY_PLAYLIST_ID = "1CQx19s0ib50fjgxM47FXY"
 
 WHISPER_MODEL_SIZE = "small"
+VISION_MODEL       = "llava"          # ollama pull llava
 
 # ── SYSTEM PROMPT ──────────────────────────────────────────────────────────
 BASE_SYSTEM_PROMPT = """Du heißt BMO und bist ein hilfreicher Assistent.
@@ -358,8 +361,8 @@ def shutdown_pc():
 
 # ── JUMPSCARE ─────────────────────────────────────────────────────────────────
 
-JUMPSCARE_IMAGE = r"D:\python\scripts\Bmo\static\jumpscare.png"
-JUMPSCARE_SOUND = r"D:\python\scripts\Bmo\static\jumpscare.mp3"
+JUMPSCARE_IMAGE = os.path.join(SCRIPT_DIR, "assets", "jumpscare", "jumpscare.png")
+JUMPSCARE_SOUND = os.path.join(SCRIPT_DIR, "assets", "jumpscare", "jumpscare.mp3")
 
 def do_jumpscare():
     """Öffnet Vollbild-Jumpscare auf dem Hauptmonitor via tkinter."""
@@ -415,13 +418,11 @@ def do_jumpscare():
 
 # ── KERNFUNKTION: Text → Antwort ───────────────────────────────────────────
 
-def process_text(text: str, remote: bool = False) -> tuple:
+def process_text(text: str) -> tuple:
     """
-    Schickt Text an Ollama, erkennt Aktionen, gibt (antwort, action, action_params) zurück.
-
-    remote=False (Standard): Aktionen werden lokal ausgeführt (für dich).
-    remote=True:  Aktionen werden NICHT ausgeführt – der Client macht das selbst.
-                  Wird für Freunde genutzt, die ihren eigenen PC/Spotify haben.
+    Schickt Text an Ollama, erkennt Aktionen, gibt (antwort, action) zurück.
+    FIX: Gibt jetzt immer ein Tupel (response_text, action_or_None) zurück,
+         damit Desktop und Web auf Aktionen reagieren können.
     """
     try:
         response = ollama.chat(model=OLLAMA_MODEL, messages=[
@@ -430,7 +431,7 @@ def process_text(text: str, remote: bool = False) -> tuple:
         ])
         content = response['message']['content']
     except Exception as e:
-        return f"Ollama ist gerade nicht erreichbar: {e}", None, {}
+        return f"Ollama ist gerade nicht erreichbar: {e}", None
 
     if "{" in content and "action" in content:
         try:
@@ -439,70 +440,71 @@ def process_text(text: str, remote: bool = False) -> tuple:
             data   = json.loads(content[start:end])
             action = data.get("action", "")
 
-            # Informations-Aktionen: immer lokal ausführen (nur Text, kein lokaler Eingriff)
             if action == "get_time":
-                return f"Es ist jetzt {datetime.datetime.now().strftime('%H:%M')} Uhr.", action, {}
+                return f"Es ist jetzt {datetime.datetime.now().strftime('%H:%M')} Uhr.", action
             elif action == "get_joke":
-                return random.choice(WITZE), action, {}
+                return random.choice(WITZE), action
             elif action == "get_news":
-                return get_news(), action, {}
+                return get_news(), action
             elif action == "get_status":
                 cpu = psutil.cpu_percent()
                 ram = psutil.virtual_memory().percent
-                return f"CPU: {cpu}%, RAM: {ram}%. Alles läuft gut!", action, {}
+                return f"CPU: {cpu}%, RAM: {ram}%. Alles läuft gut!", action
             elif action == "get_weather":
                 city = data.get("location", "Berlin")
-                return f"In {city} ist es aktuell {get_weather(city)}.", action, {}
-
-            # Ausführungs-Aktionen: bei remote=True nur zurückgeben, nicht ausführen
+                return f"In {city} ist es aktuell {get_weather(city)}.", action
             elif action == "shutdown_pc":
-                if not remote:
-                    threading.Thread(target=shutdown_pc, daemon=True).start()
-                return "Okay, ich fahre jetzt herunter. Tschüss!", action, {}
+                threading.Thread(target=shutdown_pc, daemon=True).start()
+                return "Okay, ich fahre jetzt herunter. Tschüss!", action
             elif action == "spotify_play":
-                if not remote:
-                    return spotify_play(data.get("query", "")), action, {}
-                return "Ich starte die Musik!", action, {"query": data.get("query", "")}
+                return spotify_play(data.get("query", "")), action
             elif action == "spotify_pause":
-                if not remote:
-                    return spotify_pause(), action, {}
-                return "Musik pausiert.", action, {}
+                return spotify_pause(), action
             elif action == "spotify_resume":
-                if not remote:
-                    return spotify_resume(), action, {}
-                return "Musik läuft weiter.", action, {}
+                return spotify_resume(), action
             elif action == "spotify_next":
-                if not remote:
-                    return spotify_next(), action, {}
-                return "Nächstes Lied!", action, {}
+                return spotify_next(), action
             elif action == "spotify_playlist":
-                if not remote:
-                    return spotify_playlist(), action, {}
-                return "Deine Playlist läuft!", action, {}
+                return spotify_playlist(), action
             elif action == "spotify_volume":
-                if not remote:
-                    return spotify_volume(data.get("level", 50)), action, {}
-                return f"Lautstärke angepasst.", action, {"level": data.get("level", 50)}
+                return spotify_volume(data.get("level", 50)), action
         except json.JSONDecodeError:
             pass
 
-    return content, None, {}
+    return content, None
 
 # ── ROUTES ─────────────────────────────────────────────────────────────────
 
+def save_conversation(user_text, bmo_text):
+    """Hängt einen Gesprächseintrag an conversations.json an."""
+    try:
+        if os.path.exists(CONVERSATIONS_PATH):
+            with open(CONVERSATIONS_PATH, 'r', encoding='utf-8') as f:
+                convs = json.load(f)
+        else:
+            convs = []
+        convs.insert(0, {
+            'id':        int(time.time() * 1000),
+            'user':      user_text,
+            'bmo':       bmo_text,
+            'timestamp': datetime.datetime.now().strftime('%d.%m.%Y %H:%M')
+        })
+        with open(CONVERSATIONS_PATH, 'w', encoding='utf-8') as f:
+            json.dump(convs, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        log.warning(f"Gespräch konnte nicht gespeichert werden: {e}")
+
+
 @app.route('/process', methods=['POST'])
 def route_process():
-    """Hauptendpunkt: Text rein → Antwort + action raus.
-    Optional: {"remote": true} → Aktionen werden nicht lokal ausgeführt,
-    sondern als action + action_params zurückgegeben (für Freund-Clients).
-    """
-    data   = request.json or {}
-    text   = (data.get('message') or data.get('text') or '').strip()
-    remote = bool(data.get('remote', False))
+    """Hauptendpunkt: Text rein → Antwort + action raus."""
+    data = request.json or {}
+    text = (data.get('message') or data.get('text') or '').strip()
     if not text:
-        return jsonify(response="Ich habe nichts verstanden.", action=None, action_params={})
-    response, action, action_params = process_text(text, remote=remote)
-    return jsonify(response=response, action=action, action_params=action_params)
+        return jsonify(response="Ich habe nichts verstanden.", action=None)
+    response, action = process_text(text)
+    save_conversation(text, response)
+    return jsonify(response=response, action=action)
 
 
 @app.route('/transcribe', methods=['POST'])
@@ -546,11 +548,10 @@ def route_transcribe():
         except: pass
 
     if not transcript:
-        return jsonify(transcript='', response='Ich habe dich nicht verstanden.', action=None, action_params={})
+        return jsonify(transcript='', response='Ich habe dich nicht verstanden.', action=None)
 
-    remote = bool((request.json or {}).get('remote', False))
-    response, action, action_params = process_text(transcript, remote=remote)
-    return jsonify(transcript=transcript, response=response, action=action, action_params=action_params)
+    response, action = process_text(transcript)
+    return jsonify(transcript=transcript, response=response, action=action)
 
 
 @app.route('/speak', methods=['POST'])
@@ -638,6 +639,57 @@ def route_spotify_volume():
         level = data.get('level', 50)
         msg   = spotify_volume(level)
         return jsonify(response=msg, volume=level)
+
+
+@app.route('/photo', methods=['POST'])
+def route_photo():
+    """Bild (base64 JPEG) + optionale Frage → BMO beschreibt das Bild via Vision-Modell."""
+    data     = request.json or {}
+    b64      = data.get('image', '')
+    question = data.get('question', 'Was siehst du auf diesem Bild? Beschreibe es kurz auf Deutsch.')
+    if not b64:
+        return jsonify(response="Kein Bild empfangen.", action=None)
+    try:
+        response = ollama.chat(
+            model=VISION_MODEL,
+            messages=[{
+                'role':    'user',
+                'content': question,
+                'images':  [b64]
+            }]
+        )
+        content = response['message']['content']
+        return jsonify(response=content, action='photo_analyzed')
+    except Exception as e:
+        log.error(f"Vision Fehler: {e}")
+        return jsonify(
+            response=f"Ich konnte das Bild leider nicht analysieren. Läuft '{VISION_MODEL}' in Ollama? (ollama pull {VISION_MODEL})",
+            action=None
+        )
+
+
+@app.route('/conversations', methods=['GET'])
+def route_conversations():
+    """Gibt alle gespeicherten Gespräche zurück."""
+    try:
+        if os.path.exists(CONVERSATIONS_PATH):
+            with open(CONVERSATIONS_PATH, 'r', encoding='utf-8') as f:
+                convs = json.load(f)
+        else:
+            convs = []
+        return jsonify(conversations=convs)
+    except Exception as e:
+        return jsonify(conversations=[], error=str(e))
+
+@app.route('/conversations', methods=['DELETE'])
+def route_conversations_clear():
+    """Löscht den gesamten Gesprächsverlauf."""
+    try:
+        if os.path.exists(CONVERSATIONS_PATH):
+            os.remove(CONVERSATIONS_PATH)
+        return jsonify(ok=True)
+    except Exception as e:
+        return jsonify(ok=False, error=str(e))
 
 
 @app.route('/ping', methods=['GET'])
