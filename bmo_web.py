@@ -1,5 +1,5 @@
 """
-BMO Web Interface (v3 — Mobile-optimiert)
+BMO Web Interface (v4 — Mobile-optimiert)
 ==========================================
 Starten mit: python bmo_web.py
 Dann im Browser (Handy oder PC): http://<tailscale-ip>:5000
@@ -13,7 +13,8 @@ import logging
 import subprocess
 
 # ── LOGGING ────────────────────────────────────────────────────────────────
-LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bmo_web.log")
+LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "bmo_web.log")
+os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -24,7 +25,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("BMO-Web")
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 import requests as req
 import psutil
@@ -33,8 +34,8 @@ import datetime
 app  = Flask(__name__)
 CORS(app)
 
-PORT     = 5000
-CORE_URL = "http://localhost:6000"
+PORT       = 5000
+CORE_URL   = "http://localhost:6000"
 
 # ── VERBINDUNGSCHECK ───────────────────────────────────────────────
 def core_available():
@@ -44,12 +45,124 @@ def core_available():
     except:
         return False
 
+# ── BMO ICON SVG ──────────────────────────────────────────────────
+BMO_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 215">
+  <defs>
+    <!-- Körper Verlauf: leichter Glanz oben -->
+    <linearGradient id="bodyGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#c2e8e0"/>
+      <stop offset="100%" stop-color="#96c8be"/>
+    </linearGradient>
+    <!-- Bildschirm Verlauf -->
+    <linearGradient id="screenGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#d0ede7"/>
+      <stop offset="100%" stop-color="#aed8d0"/>
+    </linearGradient>
+    <!-- Mund Verlauf -->
+    <linearGradient id="mouthGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#1f6b5a"/>
+      <stop offset="100%" stop-color="#2d9478"/>
+    </linearGradient>
+    <!-- Pink Button Verlauf -->
+    <radialGradient id="pinkGrad" cx="38%" cy="35%">
+      <stop offset="0%"   stop-color="#f060aa"/>
+      <stop offset="100%" stop-color="#c0206a"/>
+    </radialGradient>
+    <!-- Grün Button Verlauf -->
+    <radialGradient id="greenGrad" cx="38%" cy="35%">
+      <stop offset="0%"   stop-color="#6ad648"/>
+      <stop offset="100%" stop-color="#38962a"/>
+    </radialGradient>
+    <!-- Blau Button Verlauf -->
+    <radialGradient id="blueGrad" cx="38%" cy="35%">
+      <stop offset="0%"   stop-color="#4050c8"/>
+      <stop offset="100%" stop-color="#1a2080"/>
+    </radialGradient>
+    <!-- D-Pad Verlauf -->
+    <linearGradient id="dpadGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#ffd020"/>
+      <stop offset="100%" stop-color="#d49a00"/>
+    </linearGradient>
+    <!-- Cyan Dreieck -->
+    <linearGradient id="triGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#80e8f8"/>
+      <stop offset="100%" stop-color="#28b8d8"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Hintergrund -->
+  <rect width="180" height="215" fill="#6ecfbf"/>
+
+  <!-- Körper äußerer Schatten/Rand -->
+  <rect x="11" y="7" width="158" height="202" rx="24" fill="#3ea090"/>
+  <!-- Körper Hauptfläche -->
+  <rect x="14" y="10" width="152" height="199" rx="22" fill="url(#bodyGrad)"/>
+
+  <!-- Bildschirm Rand -->
+  <rect x="19" y="15" width="142" height="112" rx="19" fill="#7ab8ae"/>
+  <!-- Bildschirm Fläche -->
+  <rect x="22" y="18" width="136" height="108" rx="17" fill="url(#screenGrad)"/>
+  <!-- Bildschirm Glanzstreifen oben -->
+  <rect x="28" y="21" width="124" height="18" rx="10" fill="rgba(255,255,255,0.22)"/>
+
+  <!-- Linkes Auge -->
+  <ellipse cx="68" cy="60" rx="8" ry="10" fill="#1a1a1a"/>
+  <ellipse cx="65" cy="57" rx="2.5" ry="3" fill="rgba(255,255,255,0.35)"/>
+  <!-- Rechtes Auge -->
+  <ellipse cx="112" cy="60" rx="8" ry="10" fill="#1a1a1a"/>
+  <ellipse cx="109" cy="57" rx="2.5" ry="3" fill="rgba(255,255,255,0.35)"/>
+
+  <!-- Mund – offenes Lächeln -->
+  <path d="M53 90 Q90 124 127 90 Q90 100 53 90Z" fill="url(#mouthGrad)"/>
+  <!-- Zähne -->
+  <path d="M56 92 Q90 104 124 92" stroke="#e8f8f2" stroke-width="4"
+        fill="none" stroke-linecap="round"/>
+
+  <!-- Speaker-Leiste -->
+  <rect x="19" y="133" width="92" height="11" rx="5.5" fill="#2a8070"/>
+  <!-- Highlight auf Leiste -->
+  <rect x="23" y="134" width="84" height="4" rx="2" fill="rgba(255,255,255,0.15)"/>
+
+  <!-- Kreis rechts der Leiste -->
+  <circle cx="137" cy="138" r="10" fill="url(#blueGrad)"/>
+  <circle cx="134" cy="135" r="3" fill="rgba(255,255,255,0.3)"/>
+
+  <!-- D-Pad: horizontal -->
+  <rect x="31" y="154" width="36" height="14" rx="4" fill="url(#dpadGrad)"/>
+  <!-- D-Pad: vertikal -->
+  <rect x="42" y="143" width="14" height="36" rx="4" fill="url(#dpadGrad)"/>
+  <!-- D-Pad Highlight -->
+  <circle cx="49" cy="161" r="4" fill="rgba(255,255,255,0.2)"/>
+
+  <!-- Zwei Dash-Buttons -->
+  <rect x="31" y="187" width="14" height="8" rx="3" fill="url(#blueGrad)"/>
+  <rect x="51" y="187" width="14" height="8" rx="3" fill="url(#blueGrad)"/>
+
+  <!-- Dreieck-Button -->
+  <polygon points="113,145 128,168 98,168" fill="url(#triGrad)"/>
+  <polygon points="113,150 124,165 102,165" fill="rgba(255,255,255,0.15)"/>
+
+  <!-- Pink-Button -->
+  <circle cx="138" cy="181" r="16" fill="url(#pinkGrad)"/>
+  <circle cx="133" cy="176" r="5" fill="rgba(255,255,255,0.25)"/>
+
+  <!-- Grüner Button -->
+  <circle cx="160" cy="152" r="12" fill="url(#greenGrad)"/>
+  <circle cx="156" cy="148" r="4" fill="rgba(255,255,255,0.25)"/>
+</svg>'''
+
 # ── HTML SEITE ─────────────────────────────────────────────────────
 HTML = """<!DOCTYPE html>
 <html lang="de">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="BMO">
+<meta name="theme-color" content="#2b8773">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
+<link rel="manifest" href="/manifest.json">
 <title>BMO</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -79,12 +192,19 @@ HTML = """<!DOCTYPE html>
   /* ── HEADER ── */
   header {
     background: var(--green);
-    padding: 12px 16px;
+    padding: 10px 16px;
     display: flex;
     align-items: center;
     gap: 10px;
     flex-shrink: 0;
     box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  }
+  .header-icon {
+    height: 48px;
+    width: auto;
+    border-radius: 10px;
+    flex-shrink: 0;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4);
   }
   header h1 { font-size: 20px; font-weight: 700; }
   header .sub { font-size: 12px; opacity: 0.8; }
@@ -130,11 +250,12 @@ HTML = """<!DOCTYPE html>
   }
   .qbtn:active { transform: scale(.93); background: var(--border); }
   .qbtn .icon { font-size: 22px; line-height: 1; }
-  .qbtn.green { border-color: var(--green); }
-  .qbtn.green .icon { filter: hue-rotate(0deg); }
-  .qbtn.red { border-color: #ef4444; color: #ef4444; }
+  .qbtn.green  { border-color: var(--green); }
+  .qbtn.red    { border-color: #ef4444; color: #ef4444; }
   .qbtn.orange { border-color: #f97316; color: #f97316; }
   .qbtn.purple { border-color: #a855f7; color: #a855f7; }
+  .qbtn.teal   { border-color: #3dd6c0; color: #3dd6c0; }
+  .qbtn.yellow { border-color: #facc15; color: #facc15; }
 
   /* ── CHAT ── */
   .chat {
@@ -160,6 +281,7 @@ HTML = """<!DOCTYPE html>
   .msg.bmo   { align-self: flex-start; background: var(--bg2); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
   .msg.bmo audio { margin-top: 8px; width: 100%; border-radius: 8px; }
   .msg.sys   { align-self: center; background: transparent; color: var(--text2); font-size: 12px; padding: 2px 8px; }
+  .msg.bmo img { max-width: 100%; border-radius: 10px; margin-bottom: 6px; display: block; }
 
   /* ── TYPING ── */
   .typing {
@@ -227,7 +349,7 @@ HTML = """<!DOCTYPE html>
   #micBtn { background: #1e3a5f; color: #fff; }
   #micBtn.rec { background: #dc2626; animation: pulse .8s infinite; }
 
-  /* ── OVERLAY (Stats, Confirm) ── */
+  /* ── OVERLAY ── */
   .overlay {
     position: fixed;
     inset: 0;
@@ -250,7 +372,7 @@ HTML = """<!DOCTYPE html>
     max-width: 600px;
     transform: translateY(100%);
     transition: transform .25s cubic-bezier(.32,1,.23,1);
-    max-height: 85dvh;
+    max-height: 88dvh;
     overflow-y: auto;
   }
   .overlay.show .sheet { transform: translateY(0); }
@@ -293,7 +415,7 @@ HTML = """<!DOCTYPE html>
   .stat-card .bar-fill.warn { background: #f97316; }
   .stat-card .bar-fill.crit { background: #ef4444; }
 
-  /* ── CONFIRM SHEET ── */
+  /* ── CONFIRM / SHEET BUTTONS ── */
   .confirm-btns { display: flex; gap: 10px; margin-top: 8px; }
   .confirm-btns button {
     flex: 1;
@@ -306,22 +428,133 @@ HTML = """<!DOCTYPE html>
     transition: opacity .15s;
   }
   .confirm-btns button:active { opacity: .7; }
-  .btn-cancel { background: var(--bg3); color: var(--text); border: 1px solid var(--border) !important; }
+  .btn-cancel  { background: var(--bg3); color: var(--text); border: 1px solid var(--border) !important; }
   .btn-confirm { background: #ef4444; color: #fff; }
-
-  /* ── JUMPSCARE ── */
-  #jumpscare {
-    position: fixed;
-    inset: 0;
-    background: #000;
-    z-index: 200;
-    display: none;
-    align-items: center;
-    justify-content: center;
+  .btn-primary {
+    width: 100%; padding: 14px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    color: var(--text);
+    font-size: 16px;
     cursor: pointer;
+    margin-top: 10px;
   }
-  #jumpscare.show { display: flex; }
-  #jumpscare img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  .btn-primary:active { opacity: .7; }
+
+  /* ── KAMERA ── */
+  #cameraVideo {
+    width: 100%;
+    border-radius: 14px;
+    background: #000;
+    max-height: 280px;
+    object-fit: cover;
+    display: block;
+  }
+  #capturedPreview {
+    display: none;
+    margin-bottom: 12px;
+  }
+  #capturedPreview img {
+    width: 100%;
+    border-radius: 14px;
+    display: block;
+  }
+  .photo-question {
+    width: 100%;
+    padding: 12px 15px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    color: var(--text);
+    font-size: 15px;
+    outline: none;
+    font-family: inherit;
+    margin-bottom: 12px;
+  }
+  .photo-question:focus { border-color: var(--green); }
+  .camera-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  /* ── NOTIZEN ── */
+  .note-input-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .note-input-row input {
+    flex: 1;
+    padding: 12px 15px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    color: var(--text);
+    font-size: 15px;
+    outline: none;
+    font-family: inherit;
+  }
+  .note-input-row input:focus { border-color: var(--green); }
+  .note-add-btn {
+    padding: 12px 18px;
+    background: var(--green);
+    border: none;
+    border-radius: 14px;
+    color: #fff;
+    font-size: 20px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .note-add-btn:active { opacity: .7; }
+  .notes-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 340px;
+    overflow-y: auto;
+  }
+  .note-item {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 12px 14px;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    animation: fadeIn .2s ease;
+  }
+  .note-item .note-text {
+    flex: 1;
+    font-size: 15px;
+    line-height: 1.45;
+    word-break: break-word;
+  }
+  .note-item .note-date {
+    font-size: 11px;
+    color: var(--text2);
+    margin-top: 4px;
+  }
+  .note-del {
+    background: none;
+    border: none;
+    color: #ef4444;
+    font-size: 20px;
+    cursor: pointer;
+    flex-shrink: 0;
+    padding: 0 2px;
+    line-height: 1;
+    opacity: .7;
+  }
+  .note-del:active { opacity: 1; }
+  .notes-empty {
+    text-align: center;
+    color: var(--text2);
+    font-size: 14px;
+    padding: 28px 0;
+  }
 </style>
 </head>
 <body>
@@ -330,6 +563,7 @@ HTML = """<!DOCTYPE html>
   <!-- HEADER -->
   <header>
     <div class="dot" id="coreDot"></div>
+    <img src="/icon.svg" class="header-icon" alt="BMO">
     <div>
       <h1>BMO</h1>
       <span class="sub" id="coreStatus">Verbinde...</span>
@@ -343,6 +577,12 @@ HTML = """<!DOCTYPE html>
     </button>
     <button class="qbtn purple" onclick="showSpotify()">
       <span class="icon">🎵</span>Spotify
+    </button>
+    <button class="qbtn teal" onclick="showCamera()">
+      <span class="icon">📷</span>Foto
+    </button>
+    <button class="qbtn green" onclick="showHistory()">
+      <span class="icon">💬</span>Verlauf
     </button>
     <button class="qbtn orange" onclick="confirmShutdown()">
       <span class="icon">⏻</span>Shutdown
@@ -389,10 +629,7 @@ HTML = """<!DOCTYPE html>
         <div class="lbl">Uhrzeit</div>
       </div>
     </div>
-    <button onclick="closeOverlay('statsOverlay')"
-      style="width:100%;padding:14px;background:var(--bg3);border:1px solid var(--border);border-radius:14px;color:var(--text);font-size:16px;cursor:pointer;">
-      Schließen
-    </button>
+    <button class="btn-primary" onclick="closeOverlay('statsOverlay')">Schließen</button>
   </div>
 </div>
 
@@ -414,16 +651,12 @@ HTML = """<!DOCTYPE html>
   <div class="sheet" onclick="event.stopPropagation()">
     <div class="sheet-handle"></div>
     <h2>🎵 Spotify</h2>
-
-    <!-- Steuerung Buttons -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px;">
       <button onclick="spPlaylist()" style="padding:14px;background:var(--green);border:none;border-radius:14px;color:#fff;font-size:15px;font-weight:600;cursor:pointer;">▶ Playlist</button>
-      <button onclick="spPause()" style="padding:14px;background:var(--bg3);border:1px solid var(--border);border-radius:14px;color:var(--text);font-size:15px;font-weight:600;cursor:pointer;">⏸ Pause</button>
-      <button onclick="spResume()" style="padding:14px;background:var(--bg3);border:1px solid var(--border);border-radius:14px;color:var(--text);font-size:15px;font-weight:600;cursor:pointer;">▶ Weiter</button>
-      <button onclick="spSkip()" style="padding:14px;background:var(--bg3);border:1px solid var(--border);border-radius:14px;color:var(--text);font-size:15px;font-weight:600;cursor:pointer;">⏭ Skip</button>
+      <button onclick="spPause()"    style="padding:14px;background:var(--bg3);border:1px solid var(--border);border-radius:14px;color:var(--text);font-size:15px;font-weight:600;cursor:pointer;">⏸ Pause</button>
+      <button onclick="spResume()"   style="padding:14px;background:var(--bg3);border:1px solid var(--border);border-radius:14px;color:var(--text);font-size:15px;font-weight:600;cursor:pointer;">▶ Weiter</button>
+      <button onclick="spSkip()"     style="padding:14px;background:var(--bg3);border:1px solid var(--border);border-radius:14px;color:var(--text);font-size:15px;font-weight:600;cursor:pointer;">⏭ Skip</button>
     </div>
-
-    <!-- Lautstärke -->
     <div style="margin-bottom:20px;">
       <div style="font-size:13px;color:var(--text2);margin-bottom:10px;">🔊 Lautstärke</div>
       <div style="display:flex;align-items:center;gap:12px;">
@@ -436,15 +669,62 @@ HTML = """<!DOCTYPE html>
       </div>
       <div style="text-align:center;margin-top:8px;font-size:22px;font-weight:700;color:var(--green)" id="volLabel">50%</div>
     </div>
-
-    <button onclick="closeOverlay('spotifyOverlay')"
-      style="width:100%;padding:14px;background:var(--bg3);border:1px solid var(--border);border-radius:14px;color:var(--text);font-size:16px;cursor:pointer;">
-      Schließen
-    </button>
+    <button class="btn-primary" onclick="closeOverlay('spotifyOverlay')">Schließen</button>
   </div>
 </div>
 
+<!-- KAMERA OVERLAY -->
+<div class="overlay" id="cameraOverlay" onclick="void(0)">
+  <div class="sheet" onclick="event.stopPropagation()">
+    <div class="sheet-handle"></div>
+    <h2>📷 Foto aufnehmen</h2>
 
+    <!-- Live-Vorschau -->
+    <div style="margin-bottom:12px;">
+      <video id="cameraVideo" autoplay playsinline muted></video>
+    </div>
+
+    <!-- Aufgenommenes Bild -->
+    <div id="capturedPreview">
+      <img id="capturedImg" alt="Aufgenommenes Foto">
+    </div>
+
+    <!-- Optionale Frage -->
+    <input type="text" id="photoQuestion" class="photo-question"
+      placeholder="Frage an BMO (optional) – z.B. Was ist das?">
+
+    <!-- Buttons -->
+    <div class="camera-actions">
+      <button id="captureBtn" onclick="capturePhoto()"
+        style="padding:14px;background:var(--green);border:none;border-radius:14px;color:#fff;font-size:15px;font-weight:600;cursor:pointer;">
+        📸 Aufnehmen
+      </button>
+      <button id="sendPhotoBtn" onclick="sendPhoto()" disabled
+        style="padding:14px;background:var(--bg3);border:1px solid var(--border);border-radius:14px;color:var(--text);font-size:15px;font-weight:600;cursor:pointer;opacity:.4;">
+        ➤ Senden
+      </button>
+    </div>
+    <button class="btn-primary" onclick="closeCamera()">Schließen</button>
+  </div>
+</div>
+
+<!-- VERLAUF OVERLAY -->
+<div class="overlay" id="historyOverlay" onclick="closeOverlay('historyOverlay')">
+  <div class="sheet" onclick="event.stopPropagation()">
+    <div class="sheet-handle"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <h2 style="margin:0;">💬 Gesprächsverlauf</h2>
+      <button onclick="clearHistory()"
+        style="background:none;border:1px solid #ef4444;border-radius:10px;color:#ef4444;font-size:12px;padding:6px 10px;cursor:pointer;">
+        Alles löschen
+      </button>
+    </div>
+    <div id="historyList" class="notes-list">
+      <div class="notes-empty">Lade...</div>
+    </div>
+    <button class="btn-primary" onclick="closeOverlay('historyOverlay')">Schließen</button>
+  </div>
+</div>
 
 <script>
 const chat   = document.getElementById('chat');
@@ -461,13 +741,11 @@ async function updateStatus() {
     document.getElementById('coreDot').classList.remove('off');
     document.getElementById('coreStatus').textContent = 'Online · ' + d.time;
 
-    // Stats overlay Werte
     const cpu = d.cpu || 0, ram = d.ram || 0;
     document.getElementById('sCpu').textContent  = cpu + '%';
     document.getElementById('sRam').textContent  = ram + '%';
     document.getElementById('sTime').textContent = d.time || '--';
 
-    // Balken
     const cpuBar = document.getElementById('sCpuBar');
     cpuBar.style.width = cpu + '%';
     cpuBar.className = 'bar-fill' + (cpu > 90 ? ' crit' : cpu > 70 ? ' warn' : '');
@@ -483,7 +761,7 @@ updateStatus();
 setInterval(updateStatus, 5000);
 
 // ── OVERLAY ─────────────────────────────────────────────────────
-function showStats()   { updateStatus(); document.getElementById('statsOverlay').classList.add('show'); }
+function showStats()       { updateStatus(); document.getElementById('statsOverlay').classList.add('show'); }
 function confirmShutdown() { document.getElementById('shutdownOverlay').classList.add('show'); }
 function closeOverlay(id)  { document.getElementById(id).classList.remove('show'); }
 
@@ -519,7 +797,7 @@ async function triggerJumpscare() {
   }
 }
 
-// ── SPOTIFY OVERLAY ─────────────────────────────────────────────
+// ── SPOTIFY ─────────────────────────────────────────────────────
 async function showSpotify() {
   try {
     const r = await fetch('/api/spotify/volume');
@@ -583,6 +861,96 @@ async function spSkip() {
   } catch(e) {}
 }
 
+// ── KAMERA ─────────────────────────────────────────────────────
+let cameraStream = null;
+let capturedB64  = null;
+
+async function showCamera() {
+  capturedB64 = null;
+  document.getElementById('capturedPreview').style.display = 'none';
+  document.getElementById('cameraVideo').style.display     = 'block';
+  document.getElementById('photoQuestion').value = '';
+  const sendBtn = document.getElementById('sendPhotoBtn');
+  sendBtn.disabled = true;
+  sendBtn.style.opacity = '.4';
+
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }
+    });
+    document.getElementById('cameraVideo').srcObject = cameraStream;
+  } catch(e) {
+    alert('Kamera verweigert oder nicht verfügbar.');
+    return;
+  }
+  document.getElementById('cameraOverlay').classList.add('show');
+}
+
+function capturePhoto() {
+  const video  = document.getElementById('cameraVideo');
+  const canvas = document.createElement('canvas');
+  canvas.width  = video.videoWidth  || 640;
+  canvas.height = video.videoHeight || 480;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  capturedB64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+
+  document.getElementById('capturedImg').src = 'data:image/jpeg;base64,' + capturedB64;
+  document.getElementById('capturedPreview').style.display = 'block';
+  document.getElementById('cameraVideo').style.display     = 'none';
+
+  // Kamera-Stream stoppen
+  if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
+
+  const sendBtn = document.getElementById('sendPhotoBtn');
+  sendBtn.disabled = false;
+  sendBtn.style.opacity = '1';
+}
+
+function closeCamera() {
+  if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
+  document.getElementById('cameraOverlay').classList.remove('show');
+}
+
+async function sendPhoto() {
+  if (!capturedB64) return;
+  const question = document.getElementById('photoQuestion').value.trim()
+                   || 'Was siehst du auf diesem Bild? Beschreibe es kurz auf Deutsch.';
+  closeCamera();
+
+  // Vorschau im Chat zeigen
+  const div = document.createElement('div');
+  div.className = 'msg user';
+  const img = document.createElement('img');
+  img.src = 'data:image/jpeg;base64,' + capturedB64;
+  img.style.maxWidth = '100%';
+  img.style.borderRadius = '10px';
+  div.appendChild(img);
+  if (question !== 'Was siehst du auf diesem Bild? Beschreibe es kurz auf Deutsch.') {
+    const q = document.createElement('div');
+    q.style.marginTop = '6px';
+    q.style.fontSize  = '14px';
+    q.textContent = question;
+    div.appendChild(q);
+  }
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+
+  setTyping(true);
+  try {
+    const r = await fetch('/api/photo', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({image: capturedB64, question})
+    });
+    const d = await r.json();
+    setTyping(false);
+    addMsg(d.response || 'Keine Antwort.', 'bmo', d.audio || null);
+  } catch(e) {
+    setTyping(false);
+    addMsg('Foto-Analyse fehlgeschlagen 😢', 'sys');
+  }
+}
+
 // ── CHAT ─────────────────────────────────────────────────────────
 function addMsg(text, role, audioB64=null) {
   const div = document.createElement('div');
@@ -637,6 +1005,46 @@ input.addEventListener('input', () => {
   input.style.height = 'auto';
   input.style.height = Math.min(input.scrollHeight, 100) + 'px';
 });
+
+// ── VERLAUF ─────────────────────────────────────────────────────
+async function showHistory() {
+  document.getElementById('historyOverlay').classList.add('show');
+  await loadHistory();
+}
+
+async function loadHistory() {
+  try {
+    const r = await fetch('/api/conversations');
+    const d = await r.json();
+    renderHistory(d.conversations || []);
+  } catch(e) {
+    document.getElementById('historyList').innerHTML =
+      '<div class="notes-empty">Fehler beim Laden.</div>';
+  }
+}
+
+function renderHistory(convs) {
+  const list = document.getElementById('historyList');
+  if (!convs.length) {
+    list.innerHTML = '<div class="notes-empty">Noch keine Gespräche gespeichert.</div>';
+    return;
+  }
+  list.innerHTML = convs.map(c => `
+    <div class="note-item" style="flex-direction:column;gap:6px;">
+      <div style="font-size:11px;color:var(--text2);">${c.timestamp || ''}</div>
+      <div style="font-size:13px;color:var(--text2);">Du: ${escHtml(c.user)}</div>
+      <div style="font-size:14px;line-height:1.45;">BMO: ${escHtml(c.bmo)}</div>
+    </div>
+  `).join('');
+}
+
+async function clearHistory() {
+  if (!confirm('Gesamten Verlauf löschen?')) return;
+  try {
+    await fetch('/api/conversations', {method: 'DELETE'});
+    renderHistory([]);
+  } catch(e) {}
+}
 
 // ── MIKROFON ─────────────────────────────────────────────────────
 let mediaRecorder, audioChunks = [], recording = false;
@@ -693,6 +1101,22 @@ micBtn.addEventListener('click', async () => {
 def index():
     return HTML
 
+@app.route('/icon.svg')
+def icon_svg():
+    return Response(BMO_SVG, mimetype='image/svg+xml')
+
+@app.route('/manifest.json')
+def manifest():
+    return jsonify(
+        name="BMO",
+        short_name="BMO",
+        start_url="/",
+        display="standalone",
+        background_color="#1a1a2e",
+        theme_color="#2b8773",
+        icons=[{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml"}]
+    )
+
 @app.route('/api/status')
 def status():
     try:
@@ -739,6 +1163,31 @@ def voice_endpoint():
         return jsonify(result)
     except Exception as e:
         return jsonify(transcript='', response=f"Core nicht erreichbar: {e}", audio=None)
+
+@app.route('/api/photo', methods=['POST'])
+def photo_endpoint():
+    data = request.json or {}
+    try:
+        r = req.post(f"{CORE_URL}/photo", json=data, timeout=90)
+        return jsonify(r.json())
+    except Exception as e:
+        return jsonify(response=f"Core nicht erreichbar: {e}", action=None)
+
+@app.route('/api/conversations', methods=['GET'])
+def conversations_get():
+    try:
+        r = req.get(f"{CORE_URL}/conversations", timeout=5)
+        return jsonify(r.json())
+    except Exception as e:
+        return jsonify(conversations=[], error=str(e))
+
+@app.route('/api/conversations', methods=['DELETE'])
+def conversations_delete():
+    try:
+        r = req.delete(f"{CORE_URL}/conversations", timeout=5)
+        return jsonify(r.json())
+    except Exception as e:
+        return jsonify(ok=False, error=str(e))
 
 @app.route('/api/jumpscare', methods=['POST'])
 def jumpscare_proxy():
