@@ -112,7 +112,7 @@ Die Modell-Dateien sind zu groß für Git und liegen als **GitHub Release** bere
 
 **👉 [Modelle herunterladen (GitHub Releases)](https://github.com/HolziDape/Bmo-fr/releases/latest)**
 
-Die ZIP-Datei entpacken und den Inhalt in den `models/`-Ordner legen:
+Die Dateien herunterladen und in den `models/`-Ordner legen:
 
 | Datei | Beschreibung |
 |---|---|
