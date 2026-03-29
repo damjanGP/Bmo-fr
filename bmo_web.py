@@ -48,58 +48,11 @@ PORT       = 5000
 CORE_URL   = "http://localhost:6000"
 FRIEND_URL = "http://HIER_FREUND_IP:5000"   # ← Tailscale-IP des Freundes eintragen
 
-# ── PASSWORT (aus bmo_config.txt oder Ersteinrichtung) ─────────────
+# ── PASSWORT (aus bmo_config.txt, sonst web-basierte Ersteinrichtung) ──
 _CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bmo_config.txt")
 
-def _has_console() -> bool:
-    """Prüft ob ein sichtbares Konsolenfenster vorhanden ist (python.exe vs pythonw.exe)."""
-    try:
-        import ctypes
-        return ctypes.windll.kernel32.GetConsoleWindow() != 0
-    except Exception:
-        return True
-
-def _ask_password_gui() -> str:
-    """Fragt Passwort per tkinter-Dialog ab (wenn kein Konsolenfenster da ist)."""
-    import tkinter as tk
-    from tkinter import simpledialog, messagebox
-
-    root = tk.Tk()
-    root.withdraw()
-    root.lift()
-    root.attributes('-topmost', True)
-
-    while True:
-        pw = simpledialog.askstring(
-            "BMO – Ersteinrichtung",
-            "Waehle ein Login-Passwort fuer das Web-Interface:",
-            show='*', parent=root
-        )
-        if pw is None:  # Abbrechen gedrückt
-            messagebox.showerror("BMO", "Kein Passwort gesetzt. BMO wird beendet.")
-            root.destroy()
-            sys.exit(1)
-        pw = pw.strip()
-        if not pw:
-            messagebox.showwarning("BMO", "Passwort darf nicht leer sein.")
-            continue
-        pw2 = simpledialog.askstring(
-            "BMO – Ersteinrichtung",
-            "Passwort wiederholen:",
-            show='*', parent=root
-        )
-        if pw2 is None:
-            continue
-        if pw != pw2.strip():
-            messagebox.showwarning("BMO", "Passwoerter stimmen nicht ueberein.")
-            continue
-        break
-
-    root.destroy()
-    return pw
-
-def _load_or_create_password() -> str:
-    """Liest Passwort aus bmo_config.txt — fragt beim ersten Start danach."""
+def _load_password():
+    """Liest Passwort aus bmo_config.txt. Gibt None zurück wenn noch keins gesetzt."""
     if os.path.exists(_CONFIG_PATH):
         with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
             for line in f:
@@ -108,32 +61,15 @@ def _load_or_create_password() -> str:
                     pw = line.split("=", 1)[1].strip()
                     if pw:
                         return pw
+    return None
 
-    # Ersteinrichtung — Eingabe je nach verfügbarem Fenster
-    if _has_console():
-        print("\n" + "="*50)
-        print("  BMO - Ersteinrichtung")
-        print("="*50)
-        while True:
-            pw  = input("  Waehle ein Login-Passwort: ").strip()
-            pw2 = input("  Passwort wiederholen:      ").strip()
-            if not pw:
-                print("  Passwort darf nicht leer sein.\n")
-            elif pw != pw2:
-                print("  Passwoerter stimmen nicht ueberein.\n")
-            else:
-                break
-        print(f"  Passwort gespeichert!\n{'='*50}\n")
-    else:
-        pw = _ask_password_gui()
-
+def _save_password(pw: str):
     with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
         f.write(f"WEB_PASSWORD={pw}\n")
-    log.info("Passwort gesetzt und in bmo_config.txt gespeichert.")
-    return pw
+    log.info("Passwort in bmo_config.txt gespeichert.")
 
-WEB_PASSWORD   = _load_or_create_password()
-app.secret_key = WEB_PASSWORD + "-bmo-secret-42"
+WEB_PASSWORD   = _load_password()   # None = noch nicht eingerichtet
+app.secret_key = (WEB_PASSWORD or "bmo-setup-mode") + "-bmo-secret-42"
 
 
 # ── VERBINDUNGSCHECK ───────────────────────────────────────────────
@@ -148,12 +84,101 @@ def core_available():
 def login_required(f):
     @functools.wraps(f)
     def decorated(*args, **kwargs):
+        # Noch kein Passwort gesetzt → Ersteinrichtung im Browser
+        if not WEB_PASSWORD:
+            return redirect(url_for('setup'))
         if not session.get('authenticated'):
             if request.path.startswith('/api/'):
                 return jsonify(error="Nicht eingeloggt."), 401
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated
+
+SETUP_HTML = """<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>BMO – Ersteinrichtung</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  :root { --green:#2b8773; --green-dark:#1f6458; --bg:#1a1a2e; --bg2:#16213e; --bg3:#0f1628; --border:#2b3a5c; --text:#eee; --text2:#aaa; }
+  html,body { height:100%; background:var(--bg); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; color:var(--text); overflow:hidden; }
+  body::before { content:''; position:fixed; inset:0; z-index:0;
+    background:radial-gradient(ellipse at 20% 50%,rgba(43,135,115,.15) 0%,transparent 60%),
+               radial-gradient(ellipse at 80% 20%,rgba(43,135,115,.10) 0%,transparent 50%);
+    animation:bgPulse 6s ease-in-out infinite alternate; }
+  @keyframes bgPulse { from{opacity:.6} to{opacity:1} }
+  .wrap { position:relative; z-index:1; height:100dvh; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px; }
+  .bmo-figure { width:90px; height:90px; margin-bottom:16px; animation:bmoFloat 3s ease-in-out infinite; filter:drop-shadow(0 8px 24px rgba(43,135,115,.4)); }
+  @keyframes bmoFloat { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+  .card { background:var(--bg2); border:1px solid var(--border); border-radius:24px; padding:32px 28px; width:100%; max-width:380px; box-shadow:0 20px 60px rgba(0,0,0,.5); animation:cardIn .4s cubic-bezier(.32,1,.23,1); }
+  @keyframes cardIn { from{opacity:0;transform:translateY(20px) scale(.97)} to{opacity:1;transform:none} }
+  .badge { display:inline-block; background:rgba(43,135,115,.2); border:1px solid rgba(43,135,115,.4); color:#5eead4; border-radius:20px; padding:3px 12px; font-size:11px; font-weight:600; letter-spacing:.5px; text-transform:uppercase; margin-bottom:12px; }
+  .card-title { font-size:22px; font-weight:700; margin-bottom:4px; }
+  .card-sub { font-size:13px; color:var(--text2); margin-bottom:24px; line-height:1.5; }
+  .input-wrap { position:relative; margin-bottom:12px; }
+  .input-wrap .icon { position:absolute; left:14px; top:50%; transform:translateY(-50%); font-size:17px; pointer-events:none; }
+  .lbl { font-size:12px; color:var(--text2); margin-bottom:6px; font-weight:500; }
+  input[type=password] { width:100%; background:var(--bg3); border:1px solid var(--border); border-radius:14px; padding:13px 16px 13px 42px; color:var(--text); font-size:16px; outline:none; transition:border-color .2s; }
+  input[type=password]:focus { border-color:var(--green); }
+  input[type=password]::placeholder { color:#555; }
+  button[type=submit] { width:100%; background:var(--green); border:none; border-radius:14px; padding:14px; color:#fff; font-size:16px; font-weight:700; cursor:pointer; transition:background .15s,transform .1s; margin-top:4px; }
+  button[type=submit]:hover { background:var(--green-dark); }
+  button[type=submit]:active { transform:scale(.97); }
+  .err { display:flex; align-items:center; gap:8px; background:rgba(239,68,68,.12); border:1px solid rgba(239,68,68,.3); border-radius:12px; padding:10px 14px; color:#fca5a5; font-size:13px; margin-bottom:14px; animation:shake .3s ease; }
+  @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-6px)} 75%{transform:translateX(6px)} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <svg class="bmo-figure" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 215">
+    <defs>
+      <linearGradient id="s1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#c2e8e0"/><stop offset="100%" stop-color="#96c8be"/></linearGradient>
+      <linearGradient id="s2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#d0ede7"/><stop offset="100%" stop-color="#aed8d0"/></linearGradient>
+      <linearGradient id="s3" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#1f6b5a"/><stop offset="100%" stop-color="#2d9478"/></linearGradient>
+      <radialGradient id="s4" cx="38%" cy="35%"><stop offset="0%" stop-color="#f060aa"/><stop offset="100%" stop-color="#c0206a"/></radialGradient>
+      <radialGradient id="s5" cx="38%" cy="35%"><stop offset="0%" stop-color="#4050c8"/><stop offset="100%" stop-color="#1a2080"/></radialGradient>
+      <linearGradient id="s6" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffd020"/><stop offset="100%" stop-color="#d49a00"/></linearGradient>
+    </defs>
+    <rect width="180" height="215" fill="#6ecfbf"/>
+    <rect x="11" y="7" width="158" height="202" rx="24" fill="#3ea090"/>
+    <rect x="14" y="10" width="152" height="199" rx="22" fill="url(#s1)"/>
+    <rect x="19" y="15" width="142" height="112" rx="19" fill="#7ab8ae"/>
+    <rect x="22" y="18" width="136" height="108" rx="17" fill="url(#s2)"/>
+    <rect x="28" y="21" width="124" height="18" rx="10" fill="rgba(255,255,255,0.22)"/>
+    <ellipse cx="68" cy="60" rx="8" ry="10" fill="#1a1a1a"/><ellipse cx="65" cy="57" rx="2.5" ry="3" fill="rgba(255,255,255,0.35)"/>
+    <ellipse cx="112" cy="60" rx="8" ry="10" fill="#1a1a1a"/><ellipse cx="109" cy="57" rx="2.5" ry="3" fill="rgba(255,255,255,0.35)"/>
+    <path d="M53 90 Q90 124 127 90 Q90 100 53 90Z" fill="url(#s3)"/>
+    <path d="M56 92 Q90 104 124 92" stroke="#e8f8f2" stroke-width="4" fill="none" stroke-linecap="round"/>
+    <rect x="19" y="133" width="92" height="11" rx="5.5" fill="#2a8070"/>
+    <circle cx="137" cy="138" r="10" fill="url(#s5)"/>
+    <rect x="31" y="154" width="36" height="14" rx="4" fill="url(#s6)"/>
+    <rect x="42" y="143" width="14" height="36" rx="4" fill="url(#s6)"/>
+    <circle cx="138" cy="181" r="16" fill="url(#s4)"/>
+  </svg>
+  <div class="card">
+    <div class="badge">✨ Ersteinrichtung</div>
+    <div class="card-title">Willkommen bei BMO!</div>
+    <div class="card-sub">Wähle ein Passwort für das Web-Interface.<br>Du brauchst es beim nächsten Login.</div>
+    {% if error %}<div class="err">⚠️ {{ error }}</div>{% endif %}
+    <form method="post">
+      <div class="lbl">Neues Passwort</div>
+      <div class="input-wrap">
+        <span class="icon">🔑</span>
+        <input type="password" name="password" placeholder="Passwort wählen..." autofocus autocomplete="new-password">
+      </div>
+      <div class="lbl">Passwort wiederholen</div>
+      <div class="input-wrap">
+        <span class="icon">🔒</span>
+        <input type="password" name="password2" placeholder="Nochmal eingeben..." autocomplete="new-password">
+      </div>
+      <button type="submit">Speichern &amp; Loslegen ➤</button>
+    </form>
+  </div>
+</div>
+</body>
+</html>"""
 
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="de">
@@ -305,6 +330,8 @@ LOGIN_HTML = """<!DOCTYPE html>
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    if not WEB_PASSWORD:
+        return redirect(url_for('setup'))
     error = False
     if request.method == 'POST':
         if request.form.get('password') == WEB_PASSWORD:
@@ -318,6 +345,30 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for('login'))
+
+@app.route('/setup', methods=['GET', 'POST'])
+def setup():
+    """Ersteinrichtung — wird beim ersten Start angezeigt wenn noch kein Passwort gesetzt ist."""
+    global WEB_PASSWORD
+    if WEB_PASSWORD:
+        return redirect(url_for('login'))
+    error = None
+    if request.method == 'POST':
+        pw  = request.form.get('password', '').strip()
+        pw2 = request.form.get('password2', '').strip()
+        if not pw:
+            error = 'Passwort darf nicht leer sein.'
+        elif pw != pw2:
+            error = 'Passwörter stimmen nicht überein.'
+        else:
+            _save_password(pw)
+            WEB_PASSWORD   = pw
+            app.secret_key = pw + "-bmo-secret-42"
+            session['authenticated'] = True
+            log.info("Ersteinrichtung abgeschlossen.")
+            return redirect(url_for('index'))
+    from flask import render_template_string
+    return render_template_string(SETUP_HTML, error=error)
 
 # ── BMO ICON SVG ──────────────────────────────────────────────────
 BMO_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 215">

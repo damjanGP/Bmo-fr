@@ -1,1 +1,21 @@
 /openWakeWord
+
+# Lokale Konfiguration (Passwort) — nicht ins Repo
+bmo_config.txt
+freund/.spotify_cache
+.spotify_cache
+
+# Logs & Runtime
+logs/
+*.log
+data/conversations.json
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Windows
+Thumbs.db
+desktop.ini
+*.lnk

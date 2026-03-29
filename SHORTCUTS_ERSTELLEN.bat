@@ -10,48 +10,28 @@ echo ^| ^|_) ^| ^| ^|  ^| ^| ^| ^|_^| ^|
 echo ^|____/  ^|_^|  ^|_^|  \___/
 echo.
 echo  ========================================
-echo   Desktop-Verknuepfungen werden erstellt
+echo   Verknuepfungen werden erstellt...
 echo  ========================================
 echo.
 
 set "DIR=%~dp0"
-set "PY=D:\python\Thonny\pythonw.exe"
 
-:: Verknuepfung: BMO Starten
-powershell -NoProfile -Command ^
-  "$ws=New-Object -ComObject WScript.Shell;" ^
-  "$sc=$ws.CreateShortcut('%USERPROFILE%\Desktop\BMO Starten.lnk');" ^
-  "$sc.TargetPath='%DIR%bmo_start.bat';" ^
-  "$sc.WorkingDirectory='%DIR%';" ^
-  "$sc.IconLocation='%SystemRoot%\system32\shell32.dll,137';" ^
-  "$sc.Description='BMO Core und Web starten';" ^
-  "$sc.Save()"
+:: Shortcut: BMO Starten (gruen — Shell-Icon 137)
+powershell -NoProfile -Command "$ws=New-Object -ComObject WScript.Shell; $sc=$ws.CreateShortcut('%DIR%BMO Starten.lnk'); $sc.TargetPath='%DIR%_intern\bmo_start.bat'; $sc.WorkingDirectory='%DIR%'; $sc.IconLocation='%SystemRoot%\system32\shell32.dll,137'; $sc.Description='BMO Core und Web starten'; $sc.Save()"
 
-:: Verknuepfung: BMO Desktop
-powershell -NoProfile -Command ^
-  "$ws=New-Object -ComObject WScript.Shell;" ^
-  "$sc=$ws.CreateShortcut('%USERPROFILE%\Desktop\BMO Desktop.lnk');" ^
-  "$sc.TargetPath='%DIR%bmo_desktop.bat';" ^
-  "$sc.WorkingDirectory='%DIR%';" ^
-  "$sc.IconLocation='%SystemRoot%\system32\shell32.dll,15';" ^
-  "$sc.Description='BMO Desktop-GUI mit Wake-Word starten';" ^
-  "$sc.Save()"
+:: Shortcut: BMO Desktop (Monitor-Icon aus imageres.dll)
+powershell -NoProfile -Command "$ws=New-Object -ComObject WScript.Shell; $sc=$ws.CreateShortcut('%DIR%BMO Desktop.lnk'); $sc.TargetPath='%DIR%_intern\bmo_desktop.bat'; $sc.WorkingDirectory='%DIR%'; $sc.IconLocation='%SystemRoot%\system32\imageres.dll,109'; $sc.Description='BMO Desktop-GUI mit Wake-Word starten'; $sc.Save()"
 
-:: Verknuepfung: BMO Stoppen
-powershell -NoProfile -Command ^
-  "$ws=New-Object -ComObject WScript.Shell;" ^
-  "$sc=$ws.CreateShortcut('%USERPROFILE%\Desktop\BMO Stoppen.lnk');" ^
-  "$sc.TargetPath='%DIR%bmo_stop.bat';" ^
-  "$sc.WorkingDirectory='%DIR%';" ^
-  "$sc.IconLocation='%SystemRoot%\system32\shell32.dll,131';" ^
-  "$sc.Description='Alle BMO Prozesse beenden';" ^
-  "$sc.Save()"
+:: Shortcut: BMO Stoppen (rot — Shell-Icon 131)
+powershell -NoProfile -Command "$ws=New-Object -ComObject WScript.Shell; $sc=$ws.CreateShortcut('%DIR%BMO Stoppen.lnk'); $sc.TargetPath='%DIR%_intern\bmo_stop.bat'; $sc.WorkingDirectory='%DIR%'; $sc.IconLocation='%SystemRoot%\system32\shell32.dll,131'; $sc.Description='Alle BMO Prozesse beenden'; $sc.Save()"
 
-echo   [ OK ]  3 Verknuepfungen auf dem Desktop erstellt:
+echo   [ OK ]  3 Verknuepfungen erstellt:
 echo.
-echo          BMO Starten   (gruen)
-echo          BMO Desktop   (blau)
-echo          BMO Stoppen   (rot)
+echo          BMO Starten.lnk   (in diesem Ordner)
+echo          BMO Desktop.lnk   (in diesem Ordner)
+echo          BMO Stoppen.lnk   (in diesem Ordner)
+echo.
+echo   Die Bat-Dateien liegen in:  _intern\
 echo.
 echo  ========================================
 echo.
